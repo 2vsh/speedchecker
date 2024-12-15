@@ -22,22 +22,26 @@ def get_random_user_agent() -> str:
 
 def perform_speed_test(config_handler: ConfigHandler, sms_handler: SMSHandler) -> Dict[str, Any]:
     try:
+        print("Starting speed test...")  # Added print statement
         logging.info("Starting speed test...")
         
         # Get thresholds from config
         thresholds = config_handler.get_thresholds()
         
         # Configure speedtest with custom settings
-        st = speedtest.Speedtest(secure=True, timeout=30)
+        st = speedtest.Speedtest(secure=True)  # Removed timeout as it's not supported in newer version
         st.user_agent = get_random_user_agent()
         
+        print("Getting server list...")  # Added print statement
         logging.info("Getting server list...")
         best_server = st.get_best_server()
         logging.info(f"Selected server: {best_server['name']}, {best_server['country']}")
+        print(f"Selected server: {best_server['name']}, {best_server['country']}")  # Added print statement
         
         time.sleep(random.uniform(0.5, 1.5))
         
         # Test download speed
+        print("Testing download speed...")  # Added print statement
         logging.info("Testing download speed...")
         download_speed = st.download() / 1_000_000
         if download_speed < thresholds['download_speed']:
@@ -55,6 +59,7 @@ def perform_speed_test(config_handler: ConfigHandler, sms_handler: SMSHandler) -
         time.sleep(random.uniform(0.5, 1.5))
         
         # Test upload speed
+        print("Testing upload speed...")  # Added print statement
         logging.info("Testing upload speed...")
         upload_speed = st.upload() / 1_000_000
         if upload_speed < thresholds['upload_speed']:
@@ -96,6 +101,8 @@ def perform_speed_test(config_handler: ConfigHandler, sms_handler: SMSHandler) -
         }
         
         if all(v > 0 for v in [test_results['download'], test_results['upload'], test_results['ping']]):
+            print(f"Test completed successfully: Download: {test_results['download']} Mbps, "  # Added print statement
+                  f"Upload: {test_results['upload']} Mbps, Ping: {test_results['ping']} ms")
             logging.info(f"Test completed successfully: Download: {test_results['download']} Mbps, "
                         f"Upload: {test_results['upload']} Mbps, Ping: {test_results['ping']} ms")
             return test_results
@@ -103,6 +110,7 @@ def perform_speed_test(config_handler: ConfigHandler, sms_handler: SMSHandler) -
             raise ValueError("Invalid speed test results detected")
             
     except Exception as e:
+        print(f"Error during speed test: {str(e)}")  # Added print statement
         logging.error(f"Error during speed test: {str(e)}")
         return {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -128,20 +136,26 @@ def save_to_csv(data: Dict[str, Any]) -> None:
                 logging.info("Created new CSV file with headers")
             writer.writerow(data)
             logging.info("Successfully wrote data to CSV")
+            print(f"Data saved to {csv_file}")  # Added print statement
             
     except Exception as e:
+        print(f"Error saving to CSV: {str(e)}")  # Added print statement
         logging.error(f"Error saving to CSV: {str(e)}")
 
 def main() -> None:
+    print("Starting Network Speed Monitor...")  # Added print statement
+    
     # Initialize first run
     init_status = FirstRunHandler.initialize()
     if not init_status['success']:
+        print(f"Initialization failed: {init_status['messages']}")  # Added print statement
         logging.error("Initialization failed")
         return
 
     # Check dependencies
     dep_status = FirstRunHandler.check_dependencies()
     if not dep_status['success']:
+        print(f"Dependency check failed: {dep_status['messages']}")  # Added print statement
         logging.error("Dependency check failed")
         return
 
@@ -154,6 +168,7 @@ def main() -> None:
     # Get general configuration
     general_config = config_handler.get_general_config()
     
+    print("Network monitoring started")  # Added print statement
     logging.info("Network monitoring started")
     
     while True:
@@ -169,13 +184,16 @@ def main() -> None:
                 save_to_csv(results)
                 next_test = general_config['test_interval'] + jitter
             else:
+                print("Invalid results detected, retrying in 5 minutes...")  # Added print statement
                 logging.warning("Invalid results detected, retrying in 5 minutes...")
                 next_test = 300  # 5 minutes
             
+            print(f"Waiting approximately {next_test/60:.2f} minutes for next test")  # Added print statement
             logging.info(f"Waiting approximately {next_test/60:.2f} minutes for next test")
             time.sleep(next_test)
             
         except Exception as e:
+            print(f"Error in main loop: {str(e)}")  # Added print statement
             logging.error(f"Error in main loop: {str(e)}")
             time.sleep(60)  # Wait 1 minute before retrying
             continue

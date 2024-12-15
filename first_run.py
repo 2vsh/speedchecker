@@ -78,7 +78,7 @@ class FirstRunHandler:
             'messages': []
         }
 
-        required_packages = ['speedtest-cli', 'requests']
+        required_packages = ['requests']  # Removed speedtest-cli since we're using local file
         
         for package in required_packages:
             try:

@@ -21,8 +21,8 @@ class ConfigHandler:
             }
             self.config['SMS'] = {
                 'enabled': 'true',
-                'phone_number': '',
-                'provider': '',
+                'chat_id': '',  # Changed from phone_number to chat_id for Telegram
+                'provider': 'telegram',  # Default to Telegram
                 'api_key': ''
             }
             self.config['General'] = {
@@ -61,10 +61,10 @@ class ConfigHandler:
         }
 
     def get_sms_config(self) -> Dict[str, Any]:
-        """Get SMS configuration."""
+        """Get SMS/messaging configuration."""
         return {
             'enabled': self.config.getboolean('SMS', 'enabled'),
-            'phone_number': self.config.get('SMS', 'phone_number'),
+            'chat_id': self.config.get('SMS', 'chat_id'),  # Changed from phone_number to chat_id
             'provider': self.config.get('SMS', 'provider'),
             'api_key': self.config.get('SMS', 'api_key')
         }
