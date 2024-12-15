@@ -27,7 +27,8 @@ class ConfigHandler:
             }
             self.config['General'] = {
                 'test_interval': '1200',
-                'jitter_range': '60'
+                'jitter_range': '60',
+                'headless': 'false'
             }
             self.save_config()
             logging.info("Created default config.ini file")
@@ -69,9 +70,10 @@ class ConfigHandler:
             'api_key': self.config.get('SMS', 'api_key')
         }
 
-    def get_general_config(self) -> Dict[str, int]:
+    def get_general_config(self) -> Dict[str, Any]:
         """Get general configuration values."""
         return {
             'test_interval': self.config.getint('General', 'test_interval'),
-            'jitter_range': self.config.getint('General', 'jitter_range')
+            'jitter_range': self.config.getint('General', 'jitter_range'),
+            'headless': self.config.getboolean('General', 'headless')
         }
