@@ -7,15 +7,9 @@ import logging
 from datetime import datetime
 from typing import Dict, Any
 
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('network_monitor.log'),
-        logging.StreamHandler()
-    ]
-)
+from config_handler import ConfigHandler
+from sms_handler import SMSHandler
+from first_run import FirstRunHandler
 
 def get_random_user_agent() -> str:
     agents = [
@@ -26,53 +20,70 @@ def get_random_user_agent() -> str:
     ]
     return random.choice(agents)
 
-def perform_speed_test() -> Dict[str, Any]:
+def perform_speed_test(config_handler: ConfigHandler, sms_handler: SMSHandler) -> Dict[str, Any]:
     try:
         logging.info("Starting speed test...")
         
-        # Configure speedtest with custom settings
-        st = speedtest.Speedtest(secure=True, timeout=30)  # Added timeout
+        # Get thresholds from config
+        thresholds = config_handler.get_thresholds()
         
-        # Use random user agent
+        # Configure speedtest with custom settings
+        st = speedtest.Speedtest(secure=True, timeout=30)
         st.user_agent = get_random_user_agent()
         
         logging.info("Getting server list...")
-        # Get best server directly instead of random selection
         best_server = st.get_best_server()
         logging.info(f"Selected server: {best_server['name']}, {best_server['country']}")
         
-        # Add small random delay to appear more like natural traffic
         time.sleep(random.uniform(0.5, 1.5))
         
+        # Test download speed
         logging.info("Testing download speed...")
         download_speed = st.download() / 1_000_000
+        if download_speed < thresholds['download_speed']:
+            sms_handler.send_alert(
+                f"Low download speed detected: {download_speed:.2f} Mbps "
+                f"(threshold: {thresholds['download_speed']} Mbps)"
+            )
         
-        # Verify download speed is reasonable, retry if not
-        if download_speed < 0.1:  # Less than 0.1 Mbps is suspicious
+        # Verify download speed
+        if download_speed < 0.1:
             logging.warning("Suspicious download speed detected, retrying...")
             time.sleep(1)
             download_speed = st.download() / 1_000_000
         
-        # Small delay between tests
         time.sleep(random.uniform(0.5, 1.5))
         
+        # Test upload speed
         logging.info("Testing upload speed...")
         upload_speed = st.upload() / 1_000_000
+        if upload_speed < thresholds['upload_speed']:
+            sms_handler.send_alert(
+                f"Low upload speed detected: {upload_speed:.2f} Mbps "
+                f"(threshold: {thresholds['upload_speed']} Mbps)"
+            )
         
-        # Verify upload speed is reasonable, retry if not
-        if upload_speed < 0.1:  # Less than 0.1 Mbps is suspicious
+        # Verify upload speed
+        if upload_speed < 0.1:
             logging.warning("Suspicious upload speed detected, retrying...")
             time.sleep(1)
             upload_speed = st.upload() / 1_000_000
         
         # Get ping/jitter and server info
         results = st.results
-        
-        # Verify ping is reasonable (typical range 5-500ms)
         ping = results.ping
-        if ping > 1000 or ping < 1:  # Suspicious ping values
+        
+        # Check ping threshold
+        if ping > thresholds['ping']:
+            sms_handler.send_alert(
+                f"High ping detected: {ping:.2f} ms "
+                f"(threshold: {thresholds['ping']} ms)"
+            )
+        
+        # Verify ping is reasonable
+        if ping > 1000 or ping < 1:
             logging.warning("Suspicious ping detected, using previous server ping")
-            ping = best_server['latency']  # Use the initial server ping test instead
+            ping = best_server['latency']
         
         test_results = {
             'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -84,42 +95,27 @@ def perform_speed_test() -> Dict[str, Any]:
             'server_id': results.server['id']
         }
         
-        # Validate results before logging
         if all(v > 0 for v in [test_results['download'], test_results['upload'], test_results['ping']]):
-            logging.info(f"Test completed successfully: Download: {test_results['download']} Mbps, Upload: {test_results['upload']} Mbps, Ping: {test_results['ping']} ms")
+            logging.info(f"Test completed successfully: Download: {test_results['download']} Mbps, "
+                        f"Upload: {test_results['upload']} Mbps, Ping: {test_results['ping']} ms")
             return test_results
         else:
             raise ValueError("Invalid speed test results detected")
             
-    except speedtest.ConfigRetrievalError as e:
-        logging.error(f"Failed to retrieve speedtest configuration: {str(e)}")
-    except speedtest.NoMatchedServers as e:
-        logging.error(f"No matched servers: {str(e)}")
-    except speedtest.SpeedtestBestServerFailure as e:
-        logging.error(f"Failed to find best server: {str(e)}")
-    except speedtest.InvalidServerIDType as e:
-        logging.error(f"Invalid server ID: {str(e)}")
     except Exception as e:
         logging.error(f"Error during speed test: {str(e)}")
-    
-    # Return error results if any exception occurred
-    return {
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'download': -1,
-        'upload': -1,
-        'ping': -1,
-        'isp': 'Error',
-        'server_location': 'Error',
-        'server_id': -1
-    }
+        return {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'download': -1,
+            'upload': -1,
+            'ping': -1,
+            'isp': 'Error',
+            'server_location': 'Error',
+            'server_id': -1
+        }
 
 def save_to_csv(data: Dict[str, Any]) -> None:
     try:
-        # Create Data directory if it doesn't exist
-        if not os.path.exists('Data'):
-            os.makedirs('Data')
-            logging.info("Created Data directory")
-        
         csv_file = os.path.join('Data', 'network_metrics.csv')
         file_exists = os.path.exists(csv_file)
         
@@ -137,25 +133,41 @@ def save_to_csv(data: Dict[str, Any]) -> None:
         logging.error(f"Error saving to CSV: {str(e)}")
 
 def main() -> None:
-    logging.info("Network monitoring started")
+    # Initialize first run
+    init_status = FirstRunHandler.initialize()
+    if not init_status['success']:
+        logging.error("Initialization failed")
+        return
+
+    # Check dependencies
+    dep_status = FirstRunHandler.check_dependencies()
+    if not dep_status['success']:
+        logging.error("Dependency check failed")
+        return
+
+    # Initialize configuration
+    config_handler = ConfigHandler()
     
-    # Create Data directory at startup
-    if not os.path.exists('Data'):
-        os.makedirs('Data')
-        logging.info("Created Data directory at startup")
+    # Initialize SMS handler
+    sms_handler = SMSHandler(config_handler.get_sms_config())
+    
+    # Get general configuration
+    general_config = config_handler.get_general_config()
+    
+    logging.info("Network monitoring started")
     
     while True:
         try:
-            # Add some randomness to the exact timing
-            jitter = random.uniform(-60, 60)  # ±1 minute jitter
+            # Add configured jitter to the timing
+            jitter = random.uniform(-general_config['jitter_range'], general_config['jitter_range'])
             
             # Perform speed test and save results
-            results = perform_speed_test()
+            results = perform_speed_test(config_handler, sms_handler)
             
             # Only save results if they're valid
             if results['download'] > 0:
                 save_to_csv(results)
-                next_test = 1200 + jitter  # ~20 minutes
+                next_test = general_config['test_interval'] + jitter
             else:
                 logging.warning("Invalid results detected, retrying in 5 minutes...")
                 next_test = 300  # 5 minutes
